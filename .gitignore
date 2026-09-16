@@ -1,17 +1,40 @@
-﻿node_modules
+# Dependencies
+node_modules/
 
+# Production builds
 /.cache
 /build
 /public/build
+
+# Environment Variables & Secrets (CRITICAL SECURITY)
 .env
+.env.*
+*.env
+.env.local
+.env.production
+.env.development
+
+# Logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS & Editor Files
 .DS_Store
+Thumbs.db
 .shopify
+
+# Temporary & Runtime Generated Files
 tmp/
 *.optimized.*
+
+# Database local artifacts
 /prisma/migrations/*.sql.bak
 prisma/*.db
 prisma/*.db-journal
+
+# Testing & Linting cache
 .eslintcache
 coverage/
 .nyc_output
