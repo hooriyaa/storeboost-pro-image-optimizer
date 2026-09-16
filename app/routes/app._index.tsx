@@ -69,56 +69,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const shopId = shopRecord.id;
 
-  // Aggregate stats
-  const [totalImages, highPriority, recommended, completed, failed] = await Promise.all([
-    db.productImage.count({ where: { shopId } }),
-    db.productImage.count({ where: { shopId, optimizationStatus: "HIGH_PRIORITY" } }),
-    db.productImage.count({ where: { shopId, optimizationStatus: "OPTIMIZATION_RECOMMENDED" } }),
-    db.productImage.count({ where: { shopId, optimizationStatus: "COMPLETED" } }),
-    db.productImage.count({ where: { shopId, optimizationStatus: "FAILED" } }),
-  ]);
-
-  const needsOptimization = highPriority + recommended;
-
-  const actualSavingsAgg = await db.optimizationResult.aggregate({
-    where: { shopId },
-    _sum: { savingsBytes: true },
-  });
-
-  const actualSavingsBytes = Number(actualSavingsAgg._sum.savingsBytes ?? 0n);
-
-  const unoptimizedImages = await db.productImage.findMany({
-    where: {
-      shopId,
-      optimizationStatus: { in: ["HIGH_PRIORITY", "OPTIMIZATION_RECOMMENDED"] },
-      originalBytes: { not: null },
-    },
-    select: { originalBytes: true, format: true },
-  });
-
-  let estimatedSavingsBytes = 0;
-  for (const img of unoptimizedImages) {
-    if (img.originalBytes) {
-      const { estimatedBytes } = estimateSavings(
-        Number(img.originalBytes),
-        img.format
-      );
-      estimatedSavingsBytes += Number(img.originalBytes) - estimatedBytes;
-    }
-  }
-
-  const potentialSavingsBytes = actualSavingsBytes + estimatedSavingsBytes;
-  const progressPercent =
-    needsOptimization + completed > 0
-      ? Math.round((completed / (needsOptimization + completed)) * 100)
-      : 0;
-
-  // Latest Scan Job
-  const latestScan = await db.scanJob.findFirst({
-    where: { shopId },
-    orderBy: { createdAt: "desc" },
-  });
-
   // Build filter where clause
   const imageWhere: Record<string, unknown> = {
     shopId,
@@ -126,7 +76,36 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ...(searchQuery ? { productTitle: { contains: searchQuery, mode: "insensitive" } } : {}),
   };
 
-  const [imagesList, totalMatching] = await Promise.all([
+  // Run all queries in a single fast parallel batch
+  const [
+    statusGroups,
+    actualSavingsAgg,
+    unoptimizedImages,
+    latestScan,
+    imagesList,
+    totalMatching,
+  ] = await Promise.all([
+    db.productImage.groupBy({
+      by: ["optimizationStatus"],
+      where: { shopId },
+      _count: { _all: true },
+    }),
+    db.optimizationResult.aggregate({
+      where: { shopId },
+      _sum: { savingsBytes: true },
+    }),
+    db.productImage.findMany({
+      where: {
+        shopId,
+        optimizationStatus: { in: ["HIGH_PRIORITY", "OPTIMIZATION_RECOMMENDED"] },
+        originalBytes: { not: null },
+      },
+      select: { originalBytes: true, format: true },
+    }),
+    db.scanJob.findFirst({
+      where: { shopId },
+      orderBy: { createdAt: "desc" },
+    }),
     db.productImage.findMany({
       where: imageWhere,
       orderBy: [
@@ -146,15 +125,45 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
             optimizedPath: true,
           },
         },
-        optimizationJobs: {
-          where: { status: { in: ["QUEUED", "PROCESSING"] } },
-          select: { id: true, status: true },
-          take: 1,
-        },
       },
     }),
     db.productImage.count({ where: imageWhere }),
   ]);
+
+  let totalImages = 0;
+  let highPriority = 0;
+  let recommended = 0;
+  let completed = 0;
+  let failed = 0;
+
+  for (const group of statusGroups) {
+    const count = group._count._all;
+    totalImages += count;
+    if (group.optimizationStatus === "HIGH_PRIORITY") highPriority = count;
+    else if (group.optimizationStatus === "OPTIMIZATION_RECOMMENDED") recommended = count;
+    else if (group.optimizationStatus === "COMPLETED") completed = count;
+    else if (group.optimizationStatus === "FAILED") failed = count;
+  }
+
+  const needsOptimization = highPriority + recommended;
+  const actualSavingsBytes = Number(actualSavingsAgg._sum.savingsBytes ?? 0n);
+
+  let estimatedSavingsBytes = 0;
+  for (const img of unoptimizedImages) {
+    if (img.originalBytes) {
+      const { estimatedBytes } = estimateSavings(
+        Number(img.originalBytes),
+        img.format
+      );
+      estimatedSavingsBytes += Number(img.originalBytes) - estimatedBytes;
+    }
+  }
+
+  const potentialSavingsBytes = actualSavingsBytes + estimatedSavingsBytes;
+  const progressPercent =
+    needsOptimization + completed > 0
+      ? Math.round((completed / (needsOptimization + completed)) * 100)
+      : 0;
 
   const images = imagesList.map((img) => ({
     ...img,
