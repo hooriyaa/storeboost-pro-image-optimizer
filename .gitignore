@@ -1,0 +1,17 @@
+﻿node_modules
+
+/.cache
+/build
+/public/build
+.env
+*.log
+.DS_Store
+.shopify
+tmp/
+*.optimized.*
+/prisma/migrations/*.sql.bak
+prisma/*.db
+prisma/*.db-journal
+.eslintcache
+coverage/
+.nyc_output

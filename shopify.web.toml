@@ -1,0 +1,11 @@
+# Shopify Web process configuration for Remix + Vite
+name = "remix"
+roles = ["frontend", "backend"]
+webhooks_path = "/webhooks"
+
+[commands]
+dev = "npm exec remix vite:dev"
+build = "npm exec remix vite:build"
+
+[hmr_server]
+http_paths = ["/ping"]

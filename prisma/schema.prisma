@@ -1,0 +1,174 @@
+// modified-2026-09-16
+// This Prisma schema defines the full data model for StoreBoost Pro.
+// Each model is scoped to a Shop via shopId for strict tenant isolation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Session Storage (required by @shopify/shopify-app-session-storage-prisma) ─
+model Session {
+  id          String    @id
+  shop        String
+  state       String
+  isOnline    Boolean   @default(false)
+  scope       String?
+  expires     DateTime?
+  accessToken String
+  userId      BigInt?
+  firstName   String?
+  lastName    String?
+  email       String?
+  accountOwner Boolean  @default(false)
+  locale      String?
+  collaborator Boolean? @default(false)
+  emailVerified Boolean? @default(false)
+}
+
+// ─── Shop ───────────────────────────────────────────────────────────────────
+// Represents a Shopify merchant that has installed the app.
+model Shop {
+  id            String    @id @default(cuid())
+  shopDomain    String    @unique
+  isActive      Boolean   @default(true)
+  installedAt   DateTime  @default(now())
+  uninstalledAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  images           ProductImage[]
+  scanJobs         ScanJob[]
+  optimizationJobs OptimizationJob[]
+
+  @@index([shopDomain])
+  @@index([isActive])
+}
+
+// ─── ProductImage ────────────────────────────────────────────────────────────
+// One record per discovered Shopify product image, scoped to a shop.
+model ProductImage {
+  id                 String             @id @default(cuid())
+  shopId             String
+  shopifyImageId     String             // Shopify GID, e.g. gid://shopify/ProductImage/12345
+  shopifyProductId   String             // Shopify GID, e.g. gid://shopify/Product/67890
+  productTitle       String
+  originalUrl        String
+  width              Int?
+  height             Int?
+  format             String?            // jpeg | png | webp | gif | svg | avif | unknown
+  originalBytes      BigInt?            // Actual byte size (null until fetched)
+  optimizationStatus OptimizationStatus @default(PENDING)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  shop               Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  optimizationJobs   OptimizationJob[]
+  optimizationResult OptimizationResult?
+
+  // Enforce uniqueness per shop: one record per image per merchant
+  @@unique([shopId, shopifyImageId])
+  @@index([shopId, optimizationStatus])
+  @@index([shopId, shopifyProductId])
+  @@index([shopId, createdAt])
+}
+
+// ─── ScanJob ─────────────────────────────────────────────────────────────────
+// Represents a full-store product image scan initiated by a merchant.
+model ScanJob {
+  id            String        @id @default(cuid())
+  shopId        String
+  status        ScanJobStatus @default(QUEUED)
+  totalImages   Int?          // Total discovered (set as scanning progresses)
+  scannedImages Int           @default(0)
+  startedAt     DateTime?
+  completedAt   DateTime?
+  error         String?       // Human-readable error message
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status])
+  @@index([shopId, createdAt])
+}
+
+// ─── OptimizationJob ─────────────────────────────────────────────────────────
+// Tracks a single image optimization job in the BullMQ queue.
+model OptimizationJob {
+  id            String                @id @default(cuid())
+  shopId        String
+  imageId       String                // FK to ProductImage.id
+  status        OptimizationJobStatus @default(QUEUED)
+  attempts      Int                   @default(0)
+  maxAttempts   Int                   @default(3)
+  failureReason String?
+  queueJobId    String?               // BullMQ job ID for cross-reference
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  shop   Shop               @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  image  ProductImage       @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  result OptimizationResult?
+
+  // IDEMPOTENCY: Only one active job per image per shop at a time.
+  // A completed/failed job can be re-run (unique constraint lifted after completion).
+  @@unique([shopId, imageId])
+  @@index([shopId, status])
+  @@index([imageId])
+}
+
+// ─── OptimizationResult ──────────────────────────────────────────────────────
+// Stores the actual measured results after an image has been processed by Sharp.
+model OptimizationResult {
+  id                String   @id @default(cuid())
+  shopId            String
+  imageId           String   @unique
+  optimizationJobId String   @unique
+  originalBytes     BigInt
+  optimizedBytes    BigInt
+  savingsBytes      BigInt
+  reductionPercent  Float
+  optimizedPath     String   // Local path (assessment) or S3 key (production)
+  outputFormat      String   // Output format, e.g. "webp"
+  qualitySetting    Int      // Sharp quality setting used
+  createdAt         DateTime @default(now())
+
+  image           ProductImage    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  optimizationJob OptimizationJob @relation(fields: [optimizationJobId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum OptimizationStatus {
+  PENDING                    // Not yet analyzed (file size unknown)
+  OPTIMIZED                  // Already optimized format + reasonable size
+  OPTIMIZATION_RECOMMENDED   // Could benefit from optimization
+  HIGH_PRIORITY              // Significant optimization opportunity
+  QUEUED                     // Optimization job created, waiting to process
+  PROCESSING                 // Currently being optimized
+  COMPLETED                  // Optimization finished successfully
+  FAILED                     // Optimization failed after all retries
+}
+
+enum ScanJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum OptimizationJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
