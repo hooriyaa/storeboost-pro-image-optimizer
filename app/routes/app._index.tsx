@@ -406,6 +406,7 @@ export default function Dashboard() {
   const handleViewResult = (image: ImageRecord) => {
     if (!image.optimizationResult) return;
     setActiveResult({
+      imageId: image.id,
       productTitle: image.productTitle,
       originalUrl: image.originalUrl,
       format: image.format || "unknown",

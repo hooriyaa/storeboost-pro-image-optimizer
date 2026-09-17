@@ -250,12 +250,35 @@ async function upsertImageFromMedia(
   const format = detectFormatFromUrl(url);
   const originalBytes = await fetchImageFileSize(url);
 
-  const optimizationStatus = classifyImage({
+  // Check if image already exists and has been optimized or is currently queued/processing
+  const existingImage = await db.productImage.findUnique({
+    where: {
+      shopId_shopifyImageId: { shopId, shopifyImageId },
+    },
+    select: {
+      id: true,
+      optimizationStatus: true,
+      optimizationResult: { select: { id: true } },
+    },
+  });
+
+  const isAlreadyOptimizedOrActive =
+    existingImage &&
+    (existingImage.optimizationStatus === "COMPLETED" ||
+      existingImage.optimizationStatus === "PROCESSING" ||
+      existingImage.optimizationStatus === "QUEUED" ||
+      existingImage.optimizationResult !== null);
+
+  const initialClassification = classifyImage({
     originalBytes: originalBytes ? BigInt(originalBytes) : null,
     format,
     width,
     height,
   });
+
+  const nextStatus = isAlreadyOptimizedOrActive
+    ? existingImage.optimizationStatus
+    : initialClassification;
 
   await db.productImage.upsert({
     where: {
@@ -268,7 +291,7 @@ async function upsertImageFromMedia(
       height,
       format,
       originalBytes: originalBytes ? BigInt(originalBytes) : undefined,
-      optimizationStatus,
+      optimizationStatus: nextStatus,
       updatedAt: new Date(),
     },
     create: {
@@ -281,7 +304,7 @@ async function upsertImageFromMedia(
       height,
       format,
       originalBytes: originalBytes ? BigInt(originalBytes) : null,
-      optimizationStatus,
+      optimizationStatus: nextStatus,
     },
   });
 }

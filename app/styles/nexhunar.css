@@ -159,3 +159,78 @@ body {
   background: var(--nex-bg);
   border-radius: 8px;
 }
+
+/* Polaris Primary Button Overrides to match NEXHUNAR Deep Purple */
+.Polaris-Button--variantPrimary {
+  background: var(--nex-primary) !important;
+  border-color: var(--nex-primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(56, 32, 76, 0.2) !important;
+  font-weight: 600 !important;
+  transition: all 0.2s ease !important;
+}
+
+.Polaris-Button--variantPrimary:hover {
+  background: var(--nex-primary-hover) !important;
+  border-color: var(--nex-primary-hover) !important;
+  box-shadow: 0 3px 8px rgba(56, 32, 76, 0.3) !important;
+}
+
+/* NEXHUNAR Premium Download Button with Shimmer Shine Effect */
+.nex-download-btn {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--nex-primary);
+  color: #ffffff !important;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--nex-primary);
+  box-shadow: 0 2px 6px rgba(56, 32, 76, 0.22);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.nex-download-btn::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(235, 211, 203, 0.45) 50%,
+    transparent 100%
+  );
+  transform: skewX(-20deg);
+  transition: none;
+  pointer-events: none;
+}
+
+.nex-download-btn:hover {
+  background-color: var(--nex-primary-hover);
+  border-color: var(--nex-primary-hover);
+  box-shadow: 0 4px 14px rgba(56, 32, 76, 0.35);
+  transform: translateY(-1px);
+  color: #ffffff !important;
+}
+
+.nex-download-btn:hover::before {
+  left: 160%;
+  transition: left 0.75s ease-in-out;
+}
+
+.nex-download-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(56, 32, 76, 0.2);
+}
+
+
